@@ -1,0 +1,18 @@
+# Backend
+backend/target/
+backend/.env
+*.class
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Uploads
+backend/src/main/resources/uploads/
+
+# IDE
+.idea/
+*.iml
+
+# Env
+.env
