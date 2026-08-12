@@ -4,7 +4,7 @@
 Gradion take-home assessment — Book illustration web app using Gemini API.
 
 ## Stack
-- Backend: Spring Boot 3, Java 17, H2 database, Maven
+- Backend: Spring Boot 3, Java 21, H2 database, Maven
 - Frontend: React 18, Vite, Axios
 - API: Gemini REST API (text + image generation)
 
