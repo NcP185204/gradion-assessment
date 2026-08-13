@@ -48,6 +48,11 @@ public class PipelineService {
             throw new StepAlreadyRunningException("Step " + stepNumber + " is already running.");
         }
 
+        // New Rule: A FAILED step must be retried, not run directly.
+        if ("FAILED".equals(step.getStatus())) {
+            throw new StepNotReadyException("Step " + stepNumber + " has FAILED. Please use the retry endpoint.");
+        }
+
         // Mark step as RUNNING
         step.setStatus("RUNNING");
         step.setStartedAt(LocalDateTime.now());
@@ -70,6 +75,7 @@ public class PipelineService {
 
     @Transactional
     public PipelineStepDto retryStep(Long projectId, int stepNumber) {
+        projectRepository.findById(projectId).orElseThrow(() -> new ResourceNotFoundException("Project not found with id: " + projectId));
         PipelineStep step = pipelineStepRepository.findByProjectIdAndStepNumber(projectId, stepNumber)
                 .orElseThrow(() -> new ResourceNotFoundException("Step " + stepNumber + " not found for project " + projectId));
 
@@ -90,6 +96,7 @@ public class PipelineService {
 
     @Transactional
     public PipelineStepDto resetStuckStep(Long projectId, int stepNumber) {
+        projectRepository.findById(projectId).orElseThrow(() -> new ResourceNotFoundException("Project not found with id: " + projectId));
         PipelineStep step = pipelineStepRepository.findByProjectIdAndStepNumber(projectId, stepNumber)
                 .orElseThrow(() -> new ResourceNotFoundException("Step " + stepNumber + " not found for project " + projectId));
 
