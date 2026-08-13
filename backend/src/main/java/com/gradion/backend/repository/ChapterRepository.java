@@ -10,4 +10,5 @@ import java.util.List;
 public interface ChapterRepository extends JpaRepository<Chapter, Long> {
     List<Chapter> findByProjectId(Long projectId);
     long countByProjectId(Long projectId);
+    void deleteByProjectId(Long projectId);
 }

@@ -34,6 +34,14 @@ public class PipelineStep {
     @Lob
     private String resultJson;
 
+    /**
+     * Per-item progress for image steps ("2/2 portraits saved").
+     * The async StepRunner updates this as each image lands so the UI
+     * can show individual images appearing instead of one blocking wait.
+     */
+    @Lob
+    private String progressJson;
+
     private LocalDateTime startedAt;
 
     private LocalDateTime completedAt;

@@ -1,5 +1,6 @@
 package com.gradion.backend.service;
 
+import com.gradion.backend.dto.PipelineStepDto;
 import com.gradion.backend.exception.StepAlreadyRunningException;
 import com.gradion.backend.exception.StepNotReadyException;
 import com.gradion.backend.exception.StepNotStuckException;
@@ -31,6 +32,9 @@ class PipelineServiceTest {
     @Mock
     private ProjectRepository projectRepository;
 
+    @Mock
+    private StepRunner stepRunner;
+
     @InjectMocks
     private PipelineService pipelineService;
 
@@ -46,25 +50,22 @@ class PipelineServiceTest {
     }
 
     @Test
-    void runStep_step1_success() {
+    void runStep_step1_success_dispatchingAsync() {
         // Given
         when(projectRepository.findById(PROJECT_ID)).thenReturn(Optional.of(new Project()));
         PipelineStep step1 = makePipelineStep(1, "PENDING");
-        when(pipelineStepRepository.findByProjectIdAndStepNumber(PROJECT_ID, 1)).thenReturn(Optional.of(step1));
-
-        List<String> statusHistory = new ArrayList<>();
-        when(pipelineStepRepository.save(any(PipelineStep.class))).thenAnswer(invocation -> {
-            PipelineStep savedStep = invocation.getArgument(0);
-            statusHistory.add(savedStep.getStatus());
-            return savedStep;
-        });
+        PipelineStep running = makePipelineStep(1, "RUNNING");
+        when(pipelineStepRepository.findByProjectIdAndStepNumber(PROJECT_ID, 1))
+                .thenReturn(Optional.of(step1), Optional.of(running));
+        when(pipelineStepRepository.claimStepForRunning(any(), any(LocalDateTime.class))).thenReturn(1);
 
         // When
-        pipelineService.runStep(PROJECT_ID, 1, null);
+        PipelineStepDto result = pipelineService.runStep(PROJECT_ID, 1, null);
 
-        // Then
-        verify(pipelineStepRepository, times(2)).save(any(PipelineStep.class));
-        assertEquals(List.of("RUNNING", "DONE"), statusHistory);
+        // Then — one async dispatch; no synchronous save of DONE.
+        verify(stepRunner, times(1)).runStepAsync(PROJECT_ID, 1, null);
+        assertEquals("RUNNING", result.getStatus());
+        verify(pipelineStepRepository, never()).save(any(PipelineStep.class));
     }
 
     @Test
@@ -80,15 +81,16 @@ class PipelineServiceTest {
     }
 
     @Test
-    void runStep_stepAlreadyRunning_throwsStepAlreadyRunningException() {
-        // Given
+    void runStep_stepAlreadyRunning_claimReturnsZero_throws409_andNoAsyncDispatch() {
+        // Given — step is RUNNING already; the atomic claim cannot flip it.
         when(projectRepository.findById(PROJECT_ID)).thenReturn(Optional.of(new Project()));
         PipelineStep step1 = makePipelineStep(1, "RUNNING");
         when(pipelineStepRepository.findByProjectIdAndStepNumber(PROJECT_ID, 1)).thenReturn(Optional.of(step1));
+        when(pipelineStepRepository.claimStepForRunning(any(), any(LocalDateTime.class))).thenReturn(0);
 
         // When & Then
         assertThrows(StepAlreadyRunningException.class, () -> pipelineService.runStep(PROJECT_ID, 1, null));
-        verify(pipelineStepRepository, never()).save(any());
+        verify(stepRunner, never()).runStepAsync(any(), anyInt(), any());
     }
 
     @Test
@@ -110,21 +112,18 @@ class PipelineServiceTest {
         // Given
         when(projectRepository.findById(PROJECT_ID)).thenReturn(Optional.of(new Project()));
         PipelineStep step1 = makePipelineStep(1, "FAILED");
-        when(pipelineStepRepository.findByProjectIdAndStepNumber(PROJECT_ID, 1)).thenReturn(Optional.of(step1));
-
-        List<String> statusHistory = new ArrayList<>();
-        when(pipelineStepRepository.save(any(PipelineStep.class))).thenAnswer(invocation -> {
-            PipelineStep savedStep = invocation.getArgument(0);
-            statusHistory.add(savedStep.getStatus());
-            return savedStep;
-        });
+        PipelineStep running = makePipelineStep(1, "RUNNING");
+        when(pipelineStepRepository.findByProjectIdAndStepNumber(PROJECT_ID, 1))
+                .thenReturn(Optional.of(step1), Optional.of(running));
+        when(pipelineStepRepository.claimStepForRunning(any(), any(LocalDateTime.class))).thenReturn(1);
 
         // When
         pipelineService.retryStep(PROJECT_ID, 1);
 
-        // Then
-        verify(pipelineStepRepository, times(3)).save(any(PipelineStep.class));
-        assertEquals(List.of("PENDING", "RUNNING", "DONE"), statusHistory);
+        // Then — reset to PENDING (one save), then claimed + async-dispatched.
+        verify(pipelineStepRepository, times(1)).save(any(PipelineStep.class));
+        assertEquals("PENDING", step1.getStatus());
+        verify(stepRunner, times(1)).runStepAsync(PROJECT_ID, 1, null);
     }
 
     @Test

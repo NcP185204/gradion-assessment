@@ -17,6 +17,7 @@ public class PipelineStepDto {
     private int stepNumber;
     private String status;
     private String resultJson;
+    private String progressJson;
     private LocalDateTime startedAt;
     private LocalDateTime completedAt;
 
@@ -26,6 +27,7 @@ public class PipelineStepDto {
                 .stepNumber(entity.getStepNumber())
                 .status(entity.getStatus())
                 .resultJson(entity.getResultJson())
+                .progressJson(entity.getProgressJson())
                 .startedAt(entity.getStartedAt())
                 .completedAt(entity.getCompletedAt())
                 .build();

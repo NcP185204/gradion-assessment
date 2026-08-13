@@ -35,6 +35,21 @@ public class Project {
 
     private String geminiFileUri;
 
+    /**
+     * Durable Gemini conversation state. The notebook chains every step through
+     * {@code previous_interaction_id}; persisting these ids is what makes the
+     * pipeline resumable across server restarts without re-sending the book.
+     */
+    private String bookInteractionId;
+
+    private String styleInteractionId;
+
+    private String charactersInteractionId;
+
+    private String charactersImageInteractionId;
+
+    private String chaptersInteractionId;
+
     @Lob
     private String style;
 

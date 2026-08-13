@@ -18,7 +18,12 @@ spring:
 
 app:
   gemini:
-    api-key: ${GEMINI_API_KEY}
+    # No default on purpose? No — a default keeps the app bootable during
+    # development/tests without a key. Steps fail at runtime with a clear error
+    # only when Gemini is actually called.
+    api-key: ${GEMINI_API_KEY:}
+    text-model: ${GEMINI_TEXT_MODEL:gemini-3.6-flash}
+    image-model: ${GEMINI_IMAGE_MODEL:gemini-2.5-flash-image}
   upload:
     dir: ${UPLOAD_DIR:./uploads}
   jwt:

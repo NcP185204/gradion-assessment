@@ -10,4 +10,5 @@ import java.util.List;
 public interface CharacterRepository extends JpaRepository<Character, Long> {
     List<Character> findByProjectIdOrderByDisplayOrder(Long projectId);
     long countByProjectId(Long projectId);
+    void deleteByProjectId(Long projectId);
 }
