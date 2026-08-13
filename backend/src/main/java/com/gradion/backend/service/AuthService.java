@@ -15,6 +15,14 @@ public class AuthService {
     private final JwtUtil jwtUtil;
 
     public LoginResponse loginOrRegister(String name, String email) {
+
+        if (email == null || email.trim().isEmpty()) {
+            throw new IllegalArgumentException("Email cannot be null or empty");
+        }
+        if (name == null || name.trim().isEmpty()) {
+            throw new IllegalArgumentException("Name cannot be null or empty");
+        }
+
         User user = userRepository.findByEmail(email)
                 .orElseGet(() -> {
                     User newUser = User.builder()

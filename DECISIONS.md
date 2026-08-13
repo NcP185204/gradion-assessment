@@ -30,3 +30,7 @@ Manually refactored the JWT parsing logic in `JwtUtil.java` to support JJWT vers
 
 **Rationale:**
 The AI assistant generated code using the deprecated `0.11.x` syntax (`Jwts.parserBuilder()`, `parseClaimsJws()`, `getBody()`). Since the project enforces the newer `0.12.x` standard, I overrode the AI's implementation, migrating it to the modern API (`Jwts.parser().verifyWith()`, `parseSignedClaims()`, `getPayload()`). This demonstrates active code review and ensures up-to-date dependency compatibility.
+
+### Pure Unit Testing Strategy for AuthService
+- **Decision:** Implemented pure unit tests using Mockito extensions instead of heavy Spring Boot integration tests.
+- **Rationale:** Ensures fast execution and isolates the service layer logic completely. Added null-safety validation directly into `AuthService` to meet strict error-handling test criteria.
