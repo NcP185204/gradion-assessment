@@ -3,12 +3,17 @@ backend/target/
 backend/.env
 *.class
 
+# H2 database files (runtime artifacts)
+**/data/*.mv.db
+**/data/*.trace.db
+
 # Frontend
 frontend/node_modules/
 frontend/dist/
 
-# Uploads
-backend/src/main/resources/uploads/
+# Uploads (generated images)
+uploads/
+backend/uploads/
 
 # IDE
 .idea/
@@ -16,3 +21,4 @@ backend/src/main/resources/uploads/
 
 # Env
 .env
+*.env.local
