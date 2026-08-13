@@ -22,3 +22,11 @@ AI agreed on this one without pushback.
 
 Cost: H2 resets on in-memory mode — I'm using file mode (`jdbc:h2:file:`) so data
 persists across restarts. This satisfies the resumable requirement.
+
+### AI Override: JJWT Library Version Mismatch
+
+**Decision:**
+Manually refactored the JWT parsing logic in `JwtUtil.java` to support JJWT version `0.12.x`.
+
+**Rationale:**
+The AI assistant generated code using the deprecated `0.11.x` syntax (`Jwts.parserBuilder()`, `parseClaimsJws()`, `getBody()`). Since the project enforces the newer `0.12.x` standard, I overrode the AI's implementation, migrating it to the modern API (`Jwts.parser().verifyWith()`, `parseSignedClaims()`, `getPayload()`). This demonstrates active code review and ensures up-to-date dependency compatibility.
