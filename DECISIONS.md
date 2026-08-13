@@ -34,3 +34,32 @@ The AI assistant generated code using the deprecated `0.11.x` syntax (`Jwts.pars
 ### Pure Unit Testing Strategy for AuthService
 - **Decision:** Implemented pure unit tests using Mockito extensions instead of heavy Spring Boot integration tests.
 - **Rationale:** Ensures fast execution and isolates the service layer logic completely. Added null-safety validation directly into `AuthService` to meet strict error-handling test criteria.
+
+### Pipeline state model: two fields instead of one enum
+
+Gemini initially proposed a single status enum:
+PENDING/RUNNING/DONE/FAILED/STUCK.
+
+I pushed back — STUCK is not a real status, it is a derived condition
+(status=RUNNING AND startedAt > 5 minutes ago). Storing STUCK in DB
+means we need a cleanup job to unstick them. Using isStepStuck() as a
+computed boolean keeps the DB clean and the retry path simple.
+
+Split into: status (PENDING/RUNNING/DONE/FAILED) + startedAt timestamp.
+Cost: every stuck-check needs a time comparison. Acceptable at this scale.
+
+---
+
+### Pipeline execution: synchronous now, async later
+
+Gemini generated runStep() as fully synchronous — set RUNNING then
+set DONE in the same request. I kept this for now because GeminiService
+is not yet implemented.
+
+This will need to change when Gemini integration is added: the method
+must set RUNNING, save to DB, return 202 immediately, then call Gemini
+asynchronously (@Async). Without this split, the HTTP request blocks
+for 10-30 seconds waiting for Gemini — unacceptable UX.
+
+Cost accepted now: frontend sees RUNNING→DONE instantly during testing,
+which is not realistic. Will fix in GeminiService integration step.
