@@ -1,80 +1,149 @@
 # DECISIONS.md
 
-## Stack choice: Java Spring Boot + React
-
-I chose Spring Boot for the backend because I have real project experience with it
-(GoPlay booking platform). React with Vite for frontend because AI can generate
-components quickly and I can review/wire them to the backend.
-
-AI (Gemini assistant) suggested using Node.js/Express for a "lighter" stack.
-I pushed back — Spring Boot gives me JPA, Security, and Validation out of the box,
-and I'm faster with it. The overhead is worth the familiarity.
+Decisions only — who proposed it, who pushed back, where we landed, what it cost.
 
 ---
 
-## Storage: H2 embedded database (not JSON files)
+## Stack: Spring Boot 3 + React (Vite)
 
-My call. The spec says JSON files are valid, but concurrent write safety with
-JSON requires a per-project lock — that's the same complexity as a DB without
-the query language. H2 gives me JPA, transactions, and no extra code.
+My call. The spec permits any stack; I chose Spring Boot because I have real
+project experience with it (GoPlay booking platform) and it gives me JPA,
+Security, and bean validation out of the box. React + Vite on the frontend
+because it's what I can review and wire quickly.
 
-AI agreed on this one without pushback.
-
-Cost: H2 resets on in-memory mode — I'm using file mode (`jdbc:h2:file:`) so data
-persists across restarts. This satisfies the resumable requirement.
-
-### AI Override: JJWT Library Version Mismatch
-
-**Decision:**
-Manually refactored the JWT parsing logic in `JwtUtil.java` to support JJWT version `0.12.x`.
-
-**Rationale:**
-The AI assistant generated code using the deprecated `0.11.x` syntax (`Jwts.parserBuilder()`, `parseClaimsJws()`, `getBody()`). Since the project enforces the newer `0.12.x` standard, I overrode the AI's implementation, migrating it to the modern API (`Jwts.parser().verifyWith()`, `parseSignedClaims()`, `getPayload()`). This demonstrates active code review and ensures up-to-date dependency compatibility.
-
-### Pure Unit Testing Strategy for AuthService
-- **Decision:** Implemented pure unit tests using Mockito extensions instead of heavy Spring Boot integration tests.
-- **Rationale:** Ensures fast execution and isolates the service layer logic completely. Added null-safety validation directly into `AuthService` to meet strict error-handling test criteria.
-
-### Pipeline state model: two fields instead of one enum
-
-Gemini initially proposed a single status enum:
-PENDING/RUNNING/DONE/FAILED/STUCK.
-
-I pushed back — STUCK is not a real status, it is a derived condition
-(status=RUNNING AND startedAt > 5 minutes ago). Storing STUCK in DB
-means we need a cleanup job to unstick them. Using isStepStuck() as a
-computed boolean keeps the DB clean and the retry path simple.
-
-Split into: status (PENDING/RUNNING/DONE/FAILED) + startedAt timestamp.
-Cost: every stuck-check needs a time comparison. Acceptable at this scale.
+Gemini (the copilot) suggested Node/Express for a "lighter" stack and pushed
+back on Spring as "heavier than this scope needs." I stayed with Spring — the
+"overhead" is tooling I already know, and JPA transactions are exactly what the
+no-duplicate-call and resumability rules need for free. Cost: two processes to
+start (scripts handle it), and a heavier JVM than a Node service. Worth it.
 
 ---
 
-### Pipeline execution: synchronous now, async later
+## Storage: H2 in file mode (not JSON files, not a "real" DB)
 
-Gemini generated runStep() as fully synchronous — set RUNNING then
-set DONE in the same request. I kept this for now because GeminiService
-is not yet implemented.
+My call. The spec explicitly blesses JSON files if done safely, but safe JSON
+means a per-project write lock — which is the same concurrency complexity as a
+DB without the query language. H2 in `jdbc:h2:file:` mode gives me JPA,
+transactions, and a conditional-UPDATE primitive (see the duplicate-call
+decision below) for zero extra code.
 
-This will need to change when Gemini integration is added: the method
-must set RUNNING, save to DB, return 202 immediately, then call Gemini
-asynchronously (@Async). Without this split, the HTTP request blocks
-for 10-30 seconds waiting for Gemini — unacceptable UX.
-
-Cost accepted now: frontend sees RUNNING→DONE instantly during testing,
-which is not realistic. Will fix in GeminiService integration step.
+Gemini agreed without pushback. Costs I accepted: data is one `.mv.db` file on
+disk (fine at this scope), and it's not a Postgres-grade DB — if this grew
+multi-user with concurrent writers on the same project, I'd revisit.
 
 ---
 
-### AI Mistake & Correction: Unit Testing `PipelineService`
+## Modeling progress: `status` + `startedAt`, no STUCK enum
 
-**Initial Mistake (by AI):**
-The first version of `PipelineServiceTest.java` had several flaws:
-1.  **`TooManyActualInvocations`**: The `retryStep` test incorrectly asserted that `save()` was called 2 times, when the actual flow (reset to PENDING, set to RUNNING, set to DONE) calls it 3 times.
-2.  **`UnnecessaryStubbingException`**: A global `@BeforeEach` mock setup for `projectRepository.findById()` caused warnings in tests that didn't need that specific mock.
-3.  **State Capture Flaw**: A subsequent fix used Mockito's `ArgumentCaptor` to verify the state changes of a `PipelineStep` object. This was a subtle but critical error. The captor only gets a *reference* to the object, so it saw the final state ("DONE") for all captured invocations, leading to assertion failures on intermediate states like "RUNNING".
+Gemini's first draft used a single enum
+`PENDING/RUNNING/DONE/FAILED/STUCK`. I pushed back: STUCK is not a real state,
+it's a *derived condition* (RUNNING for longer than N minutes). Storing STUCK
+means a cleanup job to un-stick rows, and a row can be both RUNNING and STUCK
+which is unrepresentable in one field.
 
-**Correction:**
-1.  **Corrected Invocation Count**: The test was fixed to assert `times(3)`.
-2.  **Refined Mocking**: The global mock was removed. Mocks were moved into the specific tests that required them.
-3.  **Correct State Verification**: The `ArgumentCaptor` was replaced with a more robust strategy. By using `thenAnswer` on the `save()` method, we captured the object's status into a `List<String>` *at the exact moment of each call*. This correctly recorded the sequence of states (`PENDING`, `RUNNING`, `DONE`) and allowed for accurate assertions.
+Landed on: `status` (PENDING/RUNNING/DONE/FAILED) plus a `startedAt` timestamp.
+`isStepStuck()` is a computed predicate. The stuck-recovery endpoint turns a
+stale RUNNING step into FAILED so the user can retry it — no DB surgery.
+Cost: every stuck check is a time comparison, and the "N minutes" threshold is a
+magic constant (5). Acceptable.
+
+---
+
+## No duplicate calls: atomic conditional UPDATE, not a read-then-throw
+
+Gemini proposed the obvious guard: *read the step; if it's already RUNNING,
+throw 409.* I pushed back — that's a TOCTOU race. Two concurrent requests
+(second tab, double-click, refresh) can both read PENDING before either writes,
+and both proceed to call Gemini twice.
+
+Instead the repository exposes `claimStepForRunning(stepId, now)`, one `UPDATE`
+that flips `PENDING|FAILED → RUNNING` **only if** it's still in that state, and
+returns the row count. Exactly one concurrent request gets 1 row; the loser
+gets 0 and surfaces a 409 with no Gemini call. The DB is the arbiter, not the
+app.
+
+Cost: a native-ish `@Modifying` JPQL query to maintain, and one extra round-trip
+per run. This is the single most important correctness decision in the project —
+it's what makes "no duplicate calls" true across processes and server restarts,
+not just within one browser tab.
+
+### AI override — the pipeline was fully synchronous
+
+The first `PipelineService` Gemini wrote did *set RUNNING → call Gemini → set
+DONE* all inside the HTTP request. That blocks for 10–30s+ (longer for images)
+and makes a mock of the "specific in-progress state" requirement. I overrode it:
+the request now (1) validates ordering, (2) claims atomically, (3) kicks off
+`StepRunner` on a worker thread (`@Async`), and (4) returns RUNNING immediately.
+The frontend polls. Cost: added `AsyncConfig`, `StepRunner`, and a polling hook
+— real complexity, but the only way to show *which step is running* while a real
+image model is working.
+
+---
+
+## Resumability: persist Gemini interaction IDs, never re-send the book
+
+Gemini's early drafts re-sent the whole book text on every step. That burns
+tokens and is exactly what the notebook avoids. I overrode it to mirror the
+notebook: upload the book to the File API **once**, open a conversation
+(`book_interaction`), then chain every later step through
+`previous_interaction_id`.
+
+The interaction IDs are stored on the `Project` row
+(`bookInteractionId`, `styleInteractionId`, `charactersInteractionId`,
+`charactersImageInteractionId`, `chaptersInteractionId`). Because they're
+durable, a server restart mid-pipeline resumes from where the conversation
+actually was — no re-upload, no lost context. It also means the 2-character /
+1-chapter caps are the only thing bounding cost per step.
+
+Cost: five extra columns and the discipline of threading the right "previous"
+ID into each call. This is what makes "resumable" real, not cosmetic.
+
+---
+
+## Small AI corrections I made (the "you overrode the AI" list)
+
+These aren't architectural, but each was AI output that was wrong or unsafe and
+I caught it by running the thing:
+
+1. **JWT library version drift.** Gemini produced `Jwts.parserBuilder()` /
+   `parseClaimsJws()` — the deprecated 0.11.x API — while the POM pins
+   `jjwt-0.12.5`. I rewrote `JwtUtil` to `Jwts.parser().verifyWith(...)` /
+   `parseSignedClaims()`. Build would have failed silently until runtime.
+2. **Principal type mismatch.** Gemini's `JwtAuthFilter` put Spring's
+   `UserDetails` into the security context, but controllers read
+   `@AuthenticationPrincipal User` (the JPA entity). That's a guaranteed
+   `ClassCastException` on the first authenticated request. I changed the filter
+   to resolve the real `User` entity — a bug that only shows up under load, not
+   in the happy-path mock.
+3. **JSON bodies on a multipart endpoint.** Gemini declared one
+   `createProject` method with `@RequestPart` *and* `APPLICATION_JSON`. Pasted
+   text (a JSON body) would never bind. I split it into two handlers: one
+   `@RequestBody` for paste-text, one `@RequestPart` multipart for `.txt` upload.
+4. **Boot fails without a key.** Gemini wired `${GEMINI_API_KEY}` with no
+   default, so the Spring context (and every test) wouldn't start without an
+   env var. I added a default so the app boots keyless and only fails — with a
+   clear error — when a step actually calls Gemini.
+5. **Lombok vs Java 24.** The repo's default JDK is 24, and Lombok 1.18.30
+   (from Boot 3.2.5) silently drops annotation processing on 24, yielding
+   "cannot find symbol: builder()/getId()". I pinned `lombok.version=1.18.42`.
+
+---
+
+## Model choice: current IDs, env-overridable
+
+The notebook selects `gemini-3.6-flash` (text) and `gemini-2.5-flash-image`
+(Nano Banana family, free tier). I kept those exact IDs, read from
+`GEMINI_TEXT_MODEL` / `GEMINI_IMAGE_MODEL` so they're pinned but patchable.
+Recorded here because the spec asks for the IDs and for `DECISIONS.md` to note
+them.
+
+---
+
+## If I had one more day, what would I build next?
+
+An **attempt/retry history per step.** Right now a retry overwrites the previous
+failure's `resultJson`, so if a step fails, succeeds, then fails again, you can
+only see the latest error. Cheap to store (append a row per attempt with the
+error + timestamp), it directly supports the "failures are retryable" story, and
+it's the kind of thing a user actually needs to trust a multi-minute pipeline —
+more valuable than any of the polish items or the bonus Veo/Lyria sections.

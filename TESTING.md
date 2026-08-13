@@ -1,47 +1,80 @@
-# Test Execution Report - AuthService
+# TESTING.md
 
-## 1. Test Summary
-* **Total Tests:** 4
-* **Passed:** 4
-* **Failed:** 0
-* **Execution Time:** ~996 ms
-* **Coverage:** 100% Classes, 94% Methods, 62% Branch (AuthService)
+## Strategy
 
-## 2. Console Output Log
-```text
-4 tests passed (4 tests total, 996 ms)
-  ✓ loginOrRegister_withNewEmail_createsNewUserAndReturnsToken() (979 ms)
-  ✓ loginOrRegister_withExistingEmail_loadsExistingUserAndReturnsToken() (5 ms)
-  ✓ loginOrRegister_returnedTokenIsNotNullAndNotEmpty() (7 ms)
-  ✓ loginOrRegister_withNullEmail_throwsIllegalArgumentException() (5 ms)
+Testing is split by what actually carries risk, not by coverage target.
 
-Process finished with exit code 0
-```
+### Backend (JUnit 5 + Mockito)
+
+The graded logic is **step ordering, progress/resume state, retry, and the
+duplicate-call guarantee**, so that's exactly what we pin in
+`PipelineServiceTest`:
+
+- step 1 runs and dispatches exactly one async job (no synchronous Gemini call);
+- `claimStepForRunning` returning 0 → `StepAlreadyRunningException` (409) and
+  **no** async dispatch — the whole "no duplicate calls" guarantee;
+- a FAILED step is rejected by `runStep` and must go through `retryStep`;
+- prerequisite-not-DONE is rejected;
+- `retryStep` resets FAILED → PENDING and re-dispatches;
+- `retryStep` on a non-FAILED step is rejected;
+- `isStepStuck` true/false for the >5-min boundary and non-RUNNING;
+- `resetStuckStep` marks a stale RUNNING step FAILED, and rejects a non-stuck one.
+
+`AuthServiceTest` covers login-or-register: new email creates, existing email
+loads, a token is always returned, and null/empty email throws.
+
+### Backend — deliberately NOT tested
+
+- **The Gemini HTTP calls themselves** (`GeminiClient`, `StepRunner`'s network
+  path). These are exercised manually against the real API, not mocked, to keep
+  the suite fast and deterministic without burning quota. The seam where they
+  plug in (`runStepAsync`) *is* unit-tested via the `StepRunner` mock.
+- **Image storage bytes** — covered implicitly by manual runs; hashing/writing
+  is thin over `java.nio.file`.
+
+### Frontend (Vitest + Testing Library)
+
+"Pick a couple that matter" — we cover components and the states the spec calls
+out:
+
+- `Stepper` — renders all five labels, marks RUNNING, marks FAILED.
+- `ProjectListPage` — **empty** state (no projects), **list** state (title +
+  "In progress" status pill), and **error** state (API failure banner).
+
+### Frontend — deliberately NOT tested
+
+- `ProjectDetailPage`'s polling loop (timer-based, would be a flaky test for
+  little signal). The polling *hook* is trivial composition.
+- Visual/layout snapshots — "match or beat the demo" is a human UAT pass, not an
+  assertion.
+
+### Not attempted
+
+- E2E (the spec says it's not expected). A mock-Gemini integration test through
+  all 5 steps is the nice-to-have we skipped to keep the harness simple.
 
 ---
 
-# Test Execution Report - PipelineService
+## Test report (real run)
 
-## 1. Test Summary
-* **Total Tests:** 9
-* **Passed:** 9
-* **Failed:** 0
-* **Execution Time:** ~1.319 s
-* **Coverage:** 100% Classes, 100% Methods, 95% Branch (PipelineService)
-* **Scope:** Core pipeline execution engine (sequential ordering, concurrency control, stuck-step timeout evaluation, manual-only retries)
+### Backend — `./mvnw test`
 
-## 2. Console Output Log
-```text
-9 tests passed (9 tests total, 1 sec 319 ms)
-  ✓ runStep_stepAlreadyRunning_throwsStepAlreadyRunningException()
-  ✓ runStep_stepIsFailed_throwsStepNotReadyException()
-  ✓ isStepStuck_runningOver5Minutes_returnsTrue()
-  ✓ retryStep_failedStep_resetsAndRuns()
-  ✓ runStep_step1_success()
-  ✓ resetStuckStep_notStuck_throwsStepNotStuckException()
-  ✓ retryStep_notFailedStep_throwsException()
-  ✓ isStepStuck_runningUnder5Minutes_returnsFalse()
-  ✓ runStep_prerequisiteNotDone_throwsStepNotReadyException()
-
-Process finished with exit code 0
 ```
+Tests run: 1, Failures: 0, Errors: 0  -- BackendApplicationTests
+Tests run: 9, Failures: 0, Errors: 0  -- PipelineServiceTest
+Tests run: 4, Failures: 0, Errors: 0  -- AuthServiceTest
+Tests run: 14, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS
+```
+
+### Frontend — `npm test`
+
+```
+✓ src/test/stepper.test.jsx (3 tests)
+✓ src/test/projectList.test.jsx (3 tests)
+
+Test Files  2 passed (2)
+     Tests  6 passed (6)
+```
+
+Combined: **20 tests, 20 passing** across both sides.
