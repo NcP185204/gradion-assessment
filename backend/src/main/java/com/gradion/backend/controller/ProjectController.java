@@ -1,5 +1,6 @@
 package com.gradion.backend.controller;
 
+import com.gradion.backend.dto.CreateProjectRequest;
 import com.gradion.backend.dto.ProjectDetailDto;
 import com.gradion.backend.dto.ProjectDto;
 import com.gradion.backend.model.Project;
@@ -24,46 +25,62 @@ public class ProjectController {
 
     private final ProjectService projectService;
 
-    @PostMapping(consumes = {MediaType.MULTIPART_FORM_DATA_VALUE, MediaType.APPLICATION_JSON_VALUE})
-    public ResponseEntity<ProjectDto> createProject(
+    /**
+     * Creates a project from pasted book text (JSON body).
+     */
+    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<ProjectDto> createProjectFromText(
             @AuthenticationPrincipal User user,
-            @RequestPart(value = "title") String title,
-            @RequestPart(value = "bookText", required = false) String bookText,
-            @RequestPart(value = "file", required = false) MultipartFile file) throws IOException {
+            @RequestBody CreateProjectRequest request) {
 
-        String content = bookText;
-        if (file != null && !file.isEmpty()) {
-            content = new String(file.getBytes(), StandardCharsets.UTF_8);
-        }
-
-        if (content == null || content.isBlank()) {
+        if (request.getTitle() == null || request.getTitle().isBlank()
+                || request.getBookText() == null || request.getBookText().isBlank()) {
             return ResponseEntity.badRequest().build();
         }
 
-        Project newProject = projectService.createProject(user.getId(), title, content);
-        // We can call getProjectDetail to get a fully populated DTO, but that's less efficient.
-        // For now, returning a simplified DTO is fine.
-        ProjectDto projectDto = ProjectDto.builder()
-                .id(newProject.getId())
-                .title(newProject.getTitle())
-                .overallStatus(newProject.getOverallStatus())
-                .createdAt(newProject.getCreatedAt())
-                .build();
+        Project newProject = projectService.createProject(user.getId(), request.getTitle(), request.getBookText());
+        return new ResponseEntity<>(toDto(newProject), HttpStatus.CREATED);
+    }
 
-        return new ResponseEntity<>(projectDto, HttpStatus.CREATED);
+    /**
+     * Creates a project from an uploaded .txt file (multipart).
+     */
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<ProjectDto> createProjectFromFile(
+            @AuthenticationPrincipal User user,
+            @RequestPart("title") String title,
+            @RequestPart(value = "file", required = false) MultipartFile file) throws IOException {
+
+        if (file == null || file.isEmpty()) {
+            return ResponseEntity.badRequest().build();
+        }
+        String bookText = new String(file.getBytes(), StandardCharsets.UTF_8);
+        if (bookText.isBlank()) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        Project newProject = projectService.createProject(user.getId(), title, bookText);
+        return new ResponseEntity<>(toDto(newProject), HttpStatus.CREATED);
     }
 
     @GetMapping
     public ResponseEntity<List<ProjectDto>> getProjects(@AuthenticationPrincipal User user) {
-        List<ProjectDto> projects = projectService.getProjects(user.getId());
-        return ResponseEntity.ok(projects);
+        return ResponseEntity.ok(projectService.getProjects(user.getId()));
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<ProjectDetailDto> getProjectDetail(
             @AuthenticationPrincipal User user,
             @PathVariable Long id) {
-        ProjectDetailDto projectDetail = projectService.getProjectDetail(user.getId(), id);
-        return ResponseEntity.ok(projectDetail);
+        return ResponseEntity.ok(projectService.getProjectDetail(user.getId(), id));
+    }
+
+    private ProjectDto toDto(Project p) {
+        return ProjectDto.builder()
+                .id(p.getId())
+                .title(p.getTitle())
+                .overallStatus(p.getOverallStatus())
+                .createdAt(p.getCreatedAt())
+                .build();
     }
 }
