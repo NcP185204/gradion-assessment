@@ -63,3 +63,18 @@ for 10-30 seconds waiting for Gemini — unacceptable UX.
 
 Cost accepted now: frontend sees RUNNING→DONE instantly during testing,
 which is not realistic. Will fix in GeminiService integration step.
+
+---
+
+### AI Mistake & Correction: Unit Testing `PipelineService`
+
+**Initial Mistake (by AI):**
+The first version of `PipelineServiceTest.java` had several flaws:
+1.  **`TooManyActualInvocations`**: The `retryStep` test incorrectly asserted that `save()` was called 2 times, when the actual flow (reset to PENDING, set to RUNNING, set to DONE) calls it 3 times.
+2.  **`UnnecessaryStubbingException`**: A global `@BeforeEach` mock setup for `projectRepository.findById()` caused warnings in tests that didn't need that specific mock.
+3.  **State Capture Flaw**: A subsequent fix used Mockito's `ArgumentCaptor` to verify the state changes of a `PipelineStep` object. This was a subtle but critical error. The captor only gets a *reference* to the object, so it saw the final state ("DONE") for all captured invocations, leading to assertion failures on intermediate states like "RUNNING".
+
+**Correction:**
+1.  **Corrected Invocation Count**: The test was fixed to assert `times(3)`.
+2.  **Refined Mocking**: The global mock was removed. Mocks were moved into the specific tests that required them.
+3.  **Correct State Verification**: The `ArgumentCaptor` was replaced with a more robust strategy. By using `thenAnswer` on the `save()` method, we captured the object's status into a `List<String>` *at the exact moment of each call*. This correctly recorded the sequence of states (`PENDING`, `RUNNING`, `DONE`) and allowed for accurate assertions.
