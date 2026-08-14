@@ -14,6 +14,9 @@ export function useProjectPolling(projectId, intervalMs = 2000) {
   const [project, setProject] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  // Bumped to restart the polling loop after a user action (run/retry) flips a
+  // step to RUNNING. The effect only polls once on mount otherwise.
+  const [pollToken, setPollToken] = useState(0)
   const timerRef = useRef(null)
 
   const fetchProject = useCallback(async () => {
@@ -48,11 +51,17 @@ export function useProjectPolling(projectId, intervalMs = 2000) {
       cancelled = true
       if (timerRef.current) clearTimeout(timerRef.current)
     }
-  }, [fetchProject, intervalMs])
+  }, [fetchProject, intervalMs, pollToken])
 
   const refresh = useCallback(async () => {
     setLoading(true)
-    await fetchProject()
+    const data = await fetchProject()
+    // Restart the polling loop in case a step just became RUNNING (otherwise the
+    // UI would show "Running …" forever with no follow-up poll).
+    if (data?.steps?.some((s) => s.status === 'RUNNING')) {
+      setPollToken((t) => t + 1)
+    }
+    return data
   }, [fetchProject])
 
   return { project, loading, error, refresh }

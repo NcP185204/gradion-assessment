@@ -41,6 +41,11 @@ export default function ProjectDetailPage() {
   const currentStep = findCurrentStep(project)
   const runningStep = steps.find((s) => s.status === 'RUNNING')
   const runningProgress = runningStep?.progressJson ? JSON.parse(runningStep.progressJson) : null
+  // A step is "stuck" when it has been RUNNING for more than 5 minutes (the
+  // backend's reset-stuck threshold) — typically a server restart orphaned it.
+  const runningStuck = runningStep?.startedAt
+    ? Date.now() - new Date(runningStep.startedAt).getTime() > 5 * 60 * 1000
+    : false
 
   async function doRunStep(stepNumber, style) {
     setActionError(null)
@@ -127,6 +132,25 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
+      {/* Stuck recovery: surfaced while the step is RUNNING (not hidden behind
+          the "no running step" branch, which could never be true here). */}
+      {runningStep && runningStuck && (
+        <section className="action-panel">
+          <p className="step-error">
+            Step {runningStep.stepNumber} ({STEP_NAMES[runningStep.stepNumber]}) has been running
+            for more than 5 minutes. It may be stuck.
+          </p>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() => doResetStuck(runningStep.stepNumber)}
+            disabled={acting}
+          >
+            Reset stuck step
+          </button>
+        </section>
+      )}
+
       {/* Current step action + error/retry + stuck recovery */}
       {currentStep && !runningStep && (
         <section className="action-panel">
@@ -171,16 +195,6 @@ export default function ProjectDetailPage() {
               disabled={acting}
             >
               Run {STEP_NAMES[currentStep.stepNumber]}
-            </button>
-          )}
-
-          {currentStep.status === 'RUNNING' && (
-            <button
-              type="button"
-              className="btn btn-ghost"
-              onClick={() => doResetStuck(currentStep.stepNumber)}
-            >
-              Reset stuck step
             </button>
           )}
         </section>
