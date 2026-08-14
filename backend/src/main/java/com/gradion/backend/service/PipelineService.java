@@ -11,6 +11,8 @@ import com.gradion.backend.repository.ProjectRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -80,7 +82,23 @@ public class PipelineService {
         }
 
         // Fire-and-forget the real Gemini work; the UI polls for progress.
-        stepRunner.runStepAsync(projectId, stepNumber, customStyle);
+        // Must run AFTER this transaction commits: the async worker reads the
+        // step from the DB, and if it runs before the claim (PENDING -> RUNNING)
+        // is committed, it sees PENDING and skips the step entirely ("not
+        // RUNNING; skipping async work"). afterCommit guarantees the RUNNING
+        // state is durable before the worker starts. When there is no active
+        // transaction (e.g. a plain unit-test call), dispatch synchronously.
+        final String styleForRun = customStyle;
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    stepRunner.runStepAsync(projectId, stepNumber, styleForRun);
+                }
+            });
+        } else {
+            stepRunner.runStepAsync(projectId, stepNumber, styleForRun);
+        }
 
         PipelineStep running = pipelineStepRepository
                 .findByProjectIdAndStepNumber(projectId, stepNumber)

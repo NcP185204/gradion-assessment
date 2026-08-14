@@ -24,7 +24,7 @@ public interface PipelineStepRepository extends JpaRepository<PipelineStep, Long
      *
      * @return number of rows updated (1 = claimed, 0 = already running/done)
      */
-    @Modifying
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
             UPDATE PipelineStep s
                SET s.status = 'RUNNING',
