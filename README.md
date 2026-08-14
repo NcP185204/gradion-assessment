@@ -24,7 +24,7 @@ failure-retryable.
 
 ## Environment
 
-Copy `.env.example` to `backend/.env` (a `.env` next to the backend reads via
+Copy `.env.example` to `.env` (a `.env` next to the backend reads via
 dotenv) and fill in:
 
 ```

@@ -35,4 +35,4 @@ Gradion take-home assessment — Book illustration web app using the Gemini API.
 ## Build / env gotchas
 - **JAVA_HOME**: Lombok 1.18.42 is pinned (Java 24-safe), but a Java 21 runtime is preferred. `start.sh`/`test.sh` auto-detect `ms-21.0.10`.
 - Gemini key is optional at boot (defaults to empty) — steps fail only when actually calling Gemini.
-- `backend/.env` (dotenv) holds GEMINI_API_KEY etc. Never commit it.
+- `.env` (dotenv) holds GEMINI_API_KEY etc. Never commit it.

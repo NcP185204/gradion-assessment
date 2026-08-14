@@ -20,5 +20,5 @@ backend/uploads/
 *.iml
 
 # Env
-.env
+backend/.env
 *.env.local

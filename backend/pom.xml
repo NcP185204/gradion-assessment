@@ -92,6 +92,17 @@
             <artifactId>dotenv-java</artifactId>
             <version>3.0.0</version>
         </dependency>
+
+        <!--
+          GeminiClient uses MultipartBodyBuilder (spring-web) for the book upload.
+          That class references reactor/reactive-streams types, which the plain MVC
+          starter (spring-boot-starter-web) does not pull in. reactor-core brings
+          reactive-streams transitively; version is managed by the Boot BOM.
+        -->
+        <dependency>
+            <groupId>io.projectreactor</groupId>
+            <artifactId>reactor-core</artifactId>
+        </dependency>
 	</dependencies>
 
 	<build>
