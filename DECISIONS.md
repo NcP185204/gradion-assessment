@@ -139,6 +139,32 @@ them.
 
 ---
 
+## Model swap: 3.6-flash → 3.5-flash when the free tier ran dry
+
+The notebook's `gemini-3.6-flash` hit the free-tier rate limit (`429`, 20
+requests/minute) during the end-to-end run, and `gemini-3.7-flash` turned out
+not to accept a plain API key on the Interactions endpoint (`403 unregistered
+callers`). I moved the text model to `gemini-3.5-flash`, which still works on
+the Interactions API with an API key. The IDs stay env-overridable
+(`GEMINI_TEXT_MODEL`), so this is a config change, not a code change. Cost:
+the pinned model in the docs is now one generation behind the newest; the
+trade-off is a model that actually runs on a free key.
+
+---
+
+## Dispatch the async step only after the claim commits
+
+Gemini's first `runStep` fired `runStepAsync` inside the same transaction that
+flips the step PENDING→RUNNING. The worker reads the step from the DB, so it
+could observe PENDING and skip the work entirely — a race that only shows up
+under load. I moved the dispatch into a `TransactionSynchronization.afterCommit`
+hook (and added `flushAutomatically`/`clearAutomatically` to the claim UPDATE),
+so the RUNNING state is durable before the worker starts. Cost: a little
+transaction plumbing, and a synchronous fallback path for the no-transaction
+unit-test case.
+
+---
+
 ## If I had one more day, what would I build next?
 
 An **attempt/retry history per step.** Right now a retry overwrites the previous
